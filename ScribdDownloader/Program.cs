@@ -7,25 +7,76 @@ using System.Linq;
 using System.Text.Json;
 using findawayworld;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace ScribdDownloader
 {
     class Program
     {
+        static string BookIdRegexPattern = @"(^.*\/|^)([0-9]+)(\/.*|$)?$";
+        static CookieContainer cookieContainer = new CookieContainer();
         static async Task Main(string[] args)
         {
-            //allowed input
-            //366626161
-            //https://www.scribd.com/audiobook/366626161/Influence-The-Psychology-of-Persuasion
-            //https://www.scribd.com/listen/366626161
+            var bookId = args.Length > 0 ? args[0] : GetInput("Bookid or url");
+            string username = args.Length >= 2 ? args[1] : GetInput("Username");
+            string password = args.Length >= 3 ? args[2] : GetInput("Password", true);
+            bookId = new Regex(BookIdRegexPattern).Match(bookId).Groups[2].Value;
 
-            var listenPageHtml = await GetListenPageHtml("366626161");
+
+            await Login(username, password);
+            var listenPageHtml = await GetListenPageHtml(bookId);
             var book = GetBookDetails(listenPageHtml);
             var playlist = await GetPlaylist(book.audiobook);
             await DownloadPlaylist(GetSafeFileName(book.doc.title), playlist);
 
 
             Console.WriteLine("Hello World!");
+        }
+
+        private static string GetInput(string label, bool mask = false)
+        {
+            Console.Write(label + ": ");
+            if (mask)
+            {
+                string pass = "";
+                do
+                {
+                    ConsoleKeyInfo key = Console.ReadKey(true);
+                    // Backspace Should Not Work
+                    if (key.Key != ConsoleKey.Backspace && key.Key != ConsoleKey.Enter)
+                    {
+                        pass += key.KeyChar;
+                        Console.Write("*");
+                    }
+                    else
+                    {
+                        if (key.Key == ConsoleKey.Backspace && pass.Length > 0)
+                        {
+                            pass = pass.Substring(0, (pass.Length - 1));
+                            Console.Write("\b \b");
+                        }
+                        else if (key.Key == ConsoleKey.Enter)
+                        {
+                            break;
+                        }
+                    }
+                } while (true);
+                Console.WriteLine();
+                return pass;
+            }
+            return Console.ReadLine();
+        }
+
+        private static void ShowHelp()
+        {
+            Console.WriteLine("Usage: ");
+            Console.WriteLine(Path.GetFileName(System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName) + " username password bookid");
+            Console.WriteLine();
+            Console.WriteLine("bookid can be one of the following:");
+            Console.WriteLine();
+            Console.WriteLine("1234567890");
+            Console.WriteLine("https://www.scribd.com/audiobook/1234567890/Title-of-the-Book");
+            Console.WriteLine("https://www.scribd.com/listen/1234567890");
         }
 
         private static async Task DownloadPlaylist(string title, Playlist playlist)
@@ -35,14 +86,18 @@ namespace ScribdDownloader
             Console.WriteLine("Downloading: " + title);
             Console.WriteLine("Found items: " + numberOfParts);
             var partNumber = 0;
+            if (!Directory.Exists("download")) Directory.CreateDirectory("download");
+
             foreach (var item in playlist.playlist)
             {
                 partNumber++;
-                var fileName = partNumber.ToString().PadLeft(2, '0') + " - " + title + ".mp3";
+                var fileName = partNumber.ToString().PadLeft(numberOfParts.ToString().Length, '0') + " - " + title + ".mp3";
                 Console.Write(fileName);
-                using var remoteFile = await client.GetStreamAsync(item.url);
-                using var localFile = File.OpenWrite(fileName);
-                remoteFile.CopyTo(localFile);
+                var remoteFile = await client.GetByteArrayAsync(item.url);
+                Console.Write($" ({remoteFile.Length})");
+                var localFilePath = Path.Combine("download", fileName);
+                //remoteFile.CopyTo(localFile);
+                File.WriteAllBytes(localFilePath, remoteFile);
                 Console.WriteLine(" - DONE");
 
                 //using (var memoryStream = new MemoryStream())
@@ -87,24 +142,28 @@ namespace ScribdDownloader
             return book;
         }
 
-        private static async Task<string> GetListenPageHtml(string bookId)
+        private static async Task Login(string username, string password)
         {
-            Console.Write("Downloading Scribd book details page");
-            var url = "https://www.scribd.com/listen/" + bookId;
-            var cookieContainer = new CookieContainer();
-
-            //cookieContainer.Add(new Cookie("scribd_ubtc", "u%3D50654427-f74d-4cd9-b1a8-a9f65f12a456%26h%3DXvhelICrgpFlCI8Zq8x0WNiZE2ejKG%2BbJhreuT5wCUQ%3D", domain: ".scribd.com", path: "/"));
-            //cookieContainer.Add(new Cookie("_scribd_expire", "1579598447", domain: ".scribd.com", path: "/"));
-            //cookieContainer.Add(new Cookie("_scribd_session", "eyJzZXNzaW9uX2lkIjoiZTEyMGM1MmUzNDMyNjBkOThlZTg5YjliZDljNTE0OGMiLCJyIjoiMTU3OTU5ODQ0NyIsIndvcmRfaWQiOjQ5NTY4ODMwMywicCI6MTU3OTU5NDE1MSwibGFzdF9yZWF1dGgiOjE1Nzk1OTg0NDd9--f4127c5365c7fb8a2b9ee0999179b3a802e24c2f", domain: ".scribd.com", path: "/"));
+            Console.Write("Logging in to Scribd");
             using var handler = new HttpClientHandler() { CookieContainer = cookieContainer };
             using var client = new HttpClient(handler);
             var loginUrl = "https://www.scribd.com/login";
             //client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip");
             client.DefaultRequestHeaders.Add("X-Requested-With", "XMLHttpRequest");
             //client.DefaultRequestHeaders.Add("Content-Type", "application/json");
-            var loginResult = await client.PostAsync(loginUrl, new StringContent("{\"login_or_email\":\"mikeon@objectware.pl\",\"login_password\":\"Dupatej.2\",\"rememberme\":\"\",\"signup_location\":\"https://www.scribd.com/\",\"login_params\":{}}", System.Text.Encoding.UTF8, "application/json"));
+            var loginResult = await client.PostAsync(loginUrl, new StringContent("{\"login_or_email\":\"" + username + "\",\"login_password\":\"" + password + "\",\"rememberme\":\"\",\"signup_location\":\"https://www.scribd.com/\",\"login_params\":{}}", System.Text.Encoding.UTF8, "application/json"));
+            loginResult.EnsureSuccessStatusCode();
+            if (cookieContainer.Count == 0) throw new Exception("Logging in failed");
+            Console.WriteLine(" - DONE");
+        }
+        private static async Task<string> GetListenPageHtml(string bookId)
+        {
+            Console.Write("Downloading Scribd book details page");
+            var url = "https://www.scribd.com/listen/" + bookId;
+            
+            using var handler = new HttpClientHandler() { CookieContainer = cookieContainer };
+            using var client = new HttpClient(handler);
             var html = await client.GetStringAsync(url);
-
             Console.WriteLine(" - DONE");
             return html;
         }
