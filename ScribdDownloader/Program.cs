@@ -27,7 +27,7 @@ namespace ScribdDownloader
             var listenPageHtml = await GetListenPageHtml(bookId);
             var book = GetBookDetails(listenPageHtml);
             var playlist = await GetPlaylist(book.audiobook);
-            await DownloadPlaylist(GetSafeFileName(book.doc.title), playlist);
+            await DownloadPlaylist(book.doc.title, playlist);
 
 
             Console.WriteLine("Hello World!");
@@ -81,21 +81,23 @@ namespace ScribdDownloader
 
         private static async Task DownloadPlaylist(string title, Playlist playlist)
         {
+            var safeTitle = GetSafeFileName(title);
             using var client = new HttpClient();
             var numberOfParts = playlist.playlist.Length;
             Console.WriteLine("Downloading: " + title);
             Console.WriteLine("Found items: " + numberOfParts);
             var partNumber = 0;
             if (!Directory.Exists("download")) Directory.CreateDirectory("download");
+            if (!Directory.Exists(Path.Combine("download", safeTitle))) Directory.CreateDirectory(Path.Combine("download", safeTitle));
 
             foreach (var item in playlist.playlist)
             {
                 partNumber++;
-                var fileName = partNumber.ToString().PadLeft(numberOfParts.ToString().Length, '0') + " - " + title + ".mp3";
+                var fileName = partNumber.ToString().PadLeft(numberOfParts.ToString().Length, '0') + " - " + safeTitle + ".mp3";
                 Console.Write(fileName);
                 var remoteFile = await client.GetByteArrayAsync(item.url);
                 Console.Write($" ({remoteFile.Length})");
-                var localFilePath = Path.Combine("download", fileName);
+                var localFilePath = Path.Combine(Path.Combine(Path.Combine("download", safeTitle), fileName));
                 //remoteFile.CopyTo(localFile);
                 File.WriteAllBytes(localFilePath, remoteFile);
                 Console.WriteLine(" - DONE");
