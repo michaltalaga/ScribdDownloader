@@ -8,6 +8,7 @@ using System.Text.Json;
 using findawayworld;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Text;
 
 namespace ScribdDownloader
 {
@@ -112,9 +113,13 @@ namespace ScribdDownloader
 
         private static string GetSafeFileName(string file)
         {
-            Array.ForEach(Path.GetInvalidFileNameChars(),
-                  c => file = file.Replace(c.ToString(), String.Empty));
-            return file;
+            var sb = new StringBuilder();
+            var validCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_- ".ToCharArray();
+            foreach (var c in file)
+            {
+                if (validCharacters.Contains(c)) sb.Append(c);
+            }
+            return sb.ToString();
         }
         private static async Task<findawayworld.Playlist> GetPlaylist(Scribd.Audiobook audiobook)
         {
@@ -162,7 +167,7 @@ namespace ScribdDownloader
         {
             Console.Write("Downloading Scribd book details page");
             var url = "https://www.scribd.com/listen/" + bookId;
-            
+
             using var handler = new HttpClientHandler() { CookieContainer = cookieContainer };
             using var client = new HttpClient(handler);
             var html = await client.GetStringAsync(url);
@@ -172,7 +177,7 @@ namespace ScribdDownloader
     }
 }
 namespace Scribd
-{ 
+{
     public class Book
     {
         public string eor_url { get; set; }
